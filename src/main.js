@@ -1,87 +1,113 @@
-import axios from 'axios';
-import { fetchImages } from './pixabay-api';
-import { renderGallery, clearGallery, toggleLoadMoreBtn, smoothScroll } from './render-functions';
+import { getImagesByQuery } from './js/pixabay-api.js';
+import {
+  createGallery,
+  clearGallery,
+  showLoader,
+  hideLoader,
+  showLoadMoreButton,
+  hideLoadMoreButton,
+} from './js/render-functions.js';
 import iziToast from 'izitoast';
 
 const form = document.querySelector('#search-form');
-const gallery = document.querySelector('.gallery');
 const loadMoreBtn = document.querySelector('.load-more');
 
 let query = '';
 let page = 1;
-const perPage = 40;
+const perPage = 15;
 let totalHits = 0;
-let isLoading = false;
 
-form.addEventListener('submit', onSearch);
-loadMoreBtn.addEventListener('click', onLoadMore);
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  query = form.elements['search-text'].value.trim();
+  page = 1;
+  totalHits = 0;
 
-async function onSearch(event) {
-  event.preventDefault();
-
-  query = form.searchQuery.value.trim();
+  clearGallery();
+  hideLoadMoreButton();
 
   if (!query) {
-    iziToast.error({ title: 'Error', message: 'Please enter a search query.' });
+    iziToast.warning({
+      message: 'Введите запрос!',
+      position: 'topRight',
+    });
     return;
   }
 
-  page = 1; // Сброс страницы при новом поиске
-  clearGallery(gallery);
-  toggleLoadMoreBtn(false);
-  isLoading = true;
-
+  showLoader();
   try {
-    const data = await fetchImages(query, page, perPage);
-    totalHits = data.totalHits;
+    const data = await getImagesByQuery(query, page, perPage);
 
-    if (data.hits.length === 0) {
-      iziToast.info({ title: 'No results', message: 'No images found. Please try another query.' });
-      toggleLoadMoreBtn(false);
-      isLoading = false;
+    if (!data.hits.length) {
+      iziToast.error({
+        message: 'Ничего не найдено!',
+        position: 'topRight',
+      });
       return;
     }
 
-    renderGallery(gallery, data.hits);
-    iziToast.success({ title: 'Success', message: `Hooray! We found ${totalHits} images.` });
+    totalHits = data.totalHits;
+    createGallery(data.hits);
 
-    if (perPage * page < totalHits) {
-      toggleLoadMoreBtn(true);
-    } else {
-      toggleLoadMoreBtn(false);
-      iziToast.info({ title: 'End', message: "You've reached the end of search results." });
+    if (totalHits > perPage) {
+      showLoadMoreButton();
     }
+
+    iziToast.success({
+      message: `Найдено ${totalHits} изображений`,
+      position: 'topRight',
+    });
   } catch (error) {
-    iziToast.error({ title: 'Error', message: 'Something went wrong. Please try again later.' });
+    iziToast.error({
+      message: 'Ошибка загрузки данных',
+      position: 'topRight',
+    });
   } finally {
-    isLoading = false;
+    hideLoader();
   }
-}
+});
 
-async function onLoadMore() {
-  if (isLoading) return;
-
+loadMoreBtn.addEventListener('click', async () => {
   page += 1;
-  isLoading = true;
-  toggleLoadMoreBtn(false);
+  showLoader();
 
   try {
-    const data = await fetchImages(query, page, perPage);
+    const data = await getImagesByQuery(query, page, perPage);
 
-    renderGallery(gallery, data.hits, true);
-
-    if (perPage * page >= totalHits) {
-      toggleLoadMoreBtn(false);
-      iziToast.info({ title: 'End', message: "You've reached the end of search results." });
-    } else {
-      toggleLoadMoreBtn(true);
+    if (!data.hits.length) {
+      iziToast.info({
+        message: 'Больше изображений нет.',
+        position: 'topRight',
+      });
+      hideLoadMoreButton();
+      return;
     }
 
-    // Скроллим только после загрузки следующей страницы
-    smoothScroll();
+    createGallery(data.hits);
+
+    const totalPages = Math.ceil(totalHits / perPage);
+    if (page >= totalPages) {
+      hideLoadMoreButton();
+      iziToast.info({
+        message: 'Вы достигли конца результатов.',
+        position: 'topRight',
+      });
+    }
+
+    // Плавная прокрутка
+    const cardHeight = document
+      .querySelector('.gallery')
+      .firstElementChild.getBoundingClientRect().height;
+    window.scrollBy({
+      top: cardHeight * 2,
+      behavior: 'smooth',
+    });
   } catch (error) {
-    iziToast.error({ title: 'Error', message: 'Something went wrong. Please try again later.' });
+    iziToast.error({
+      message: 'Ошибка при загрузке дополнительных изображений',
+      position: 'topRight',
+    });
   } finally {
-    isLoading = false;
+    hideLoader();
   }
-}
+});
